@@ -19,21 +19,12 @@ import (
 )
 
 type Row struct {
-	RowNumber          string
-	EAN                string
-	ProductName        string
-	ProductDescription string
-	StoreName          string
-	ProductTrademark   string
-	Price              string
-	DiscountedPrice    string
-	Discount           string
-	VariationName      string
-	VariationValue     string
-	Stock              string
-	ProductCategory1   string
-	ProductCategory2   string
-	ProductCategory3   string
+	RowNumber   int
+	SKU         string
+	ProductName string
+	StoreName   string
+	Price       string
+	Stock       string
 }
 
 type StoreDTO struct {
@@ -63,7 +54,10 @@ func getRowFields() []string {
 	rowFields := make([]string, 0, 20)
 
 	for i := 0; i < e.NumField(); i++ {
-		rowFields = append(rowFields, e.Type().Field(i).Name)
+		fieldName := e.Type().Field(i).Name
+		if fieldName != "RowNumber" {
+			rowFields = append(rowFields, e.Type().Field(i).Name)
+		}
 	}
 
 	return rowFields
@@ -121,28 +115,30 @@ func countLines(r io.Reader) (int, error) {
 	}
 }
 
-func createRow(recordHolder RecordHolder, rowFields []string, fileConfiguration FileConfiguration, columnMappingsByFieldName map[string]ColumnMapping) (Row, error) {
-	row := Row{}
+func createRow(recordHolder RecordHolder, rowFields []string, fileConfiguration FileConfiguration, columnMappingsByFieldName map[string]ColumnMapping, rowNumber int) (Row, error) {
+	row := Row{
+		RowNumber: rowNumber,
+	}
 
 	for _, rowField := range rowFields {
-		if columnMapping, ok := columnMappingsByFieldName[rowField]; ok {
-			reflect.ValueOf(&row).Elem().FieldByName(rowField).SetString(
-				recordHolder.Values[columnMapping.ColumnName],
-			)
-		} else {
-			if !fileConfiguration.IgnoreUnmappedField {
-				return row, fmt.Errorf("ColumnMapping for field %s is not specified", rowField)
-			}
-		}
+		columnMapping := columnMappingsByFieldName[rowField]
+
+		reflect.ValueOf(&row).Elem().FieldByName(rowField).SetString(
+			recordHolder.Values[columnMapping.ColumnName],
+		)
 	}
 
 	return row, nil
 }
 
 func recordsProducer(csvFilename string, fileConfiguration FileConfiguration) func(context.Context, chan<- rxgo.Item) {
-	columnMappingsByFieldName := fileConfiguration.ColumnMappingsByFieldName()
-
 	return func(context context.Context, ch chan<- rxgo.Item) {
+		defer func() {
+			if err := recover(); err != nil {
+				ch <- rxgo.Error(fmt.Errorf("Uncaught error in recordsProducer %v", err))
+			}
+		}()
+
 		csvFile, err := os.Open(csvFilename)
 		if err != nil {
 			ch <- rxgo.Error(err)
@@ -158,14 +154,24 @@ func recordsProducer(csvFilename string, fileConfiguration FileConfiguration) fu
 		}
 
 		headers := dec.Header()
-		if len(headers) != len(fileConfiguration.ColumnMappings) {
-			ch <- rxgo.Error(fmt.Errorf(
-				"Length of headers does not match fileConfiguration (%d vs %d)",
-				len(headers), len(fileConfiguration.ColumnMappings),
-			))
-			return
+		var headersAsMap = make(map[string]bool, len(headers))
+		for _, header := range headers {
+			headersAsMap[header] = true
 		}
 
+		for _, columnMapping := range fileConfiguration.ColumnMappings {
+			if _, ok := headersAsMap[columnMapping.ColumnName]; !(ok || fileConfiguration.IgnoreUnmappedField) {
+				ch <- rxgo.Error(fmt.Errorf(
+					"Mapping for field %s (column %s) is not found in the input",
+					columnMapping.FieldName, columnMapping.ColumnName,
+				))
+
+				return
+			}
+		}
+
+		rowNumber := 2
+		columnMappingsByFieldName := fileConfiguration.ColumnMappingsByFieldName()
 		for {
 			recordHolder := newRecordHolder()
 
@@ -180,16 +186,19 @@ func recordsProducer(csvFilename string, fileConfiguration FileConfiguration) fu
 				recordHolder.Values[header] = record[i]
 			}
 
-			row, err := createRow(recordHolder, rowFields, fileConfiguration, columnMappingsByFieldName)
+			row, err := createRow(
+				recordHolder, rowFields, fileConfiguration,
+				columnMappingsByFieldName, rowNumber,
+			)
+
+			rowNumber++
 
 			if err != nil {
 				ch <- rxgo.Error(err)
 			} else {
 				ch <- rxgo.Of(row)
 			}
-
 		}
-
 	}
 }
 
@@ -201,12 +210,16 @@ func createStoreDTOsObservable(
 
 	return observable.BufferWithTimeOrCount(rxgo.WithDuration(bufferTimeout), bufferSize).FlatMap(
 		func(item rxgo.Item) rxgo.Observable {
+			if item.Error() {
+				return rxgo.Thrown(item.E)
+			}
+
 			rows := item.V
 			//fmt.Printf("Callback of BufferWithTimeOrCount, rows: %v\n", rows)
 
 			return rxgo.Just(rows)().GroupByDynamic(func(item rxgo.Item) string {
 				row, _ := item.V.(Row)
-				//fmt.Printf("Callback of GroupByDynamic, RowNumber: %s, StoreName: %s\n", row.RowNumber, row.StoreName)
+				//fmt.Printf("Callback of GroupByDynamic, RowNumber: %d, StoreName: %s\n", row.RowNumber, row.StoreName)
 
 				return row.StoreName
 			}, rxgo.WithBufferedChannel(bufferSize)).FlatMap(func(item rxgo.Item) rxgo.Observable {
@@ -242,7 +255,7 @@ func sendStoreDTOs(storeDTOsObservable rxgo.Observable) rxgo.Disposed {
 	return storeDTOsObservable.ForEach(func(v interface{}) {
 		fmt.Printf("Sending: %v\n", v)
 	}, func(err error) {
-		fmt.Printf("error: %e\n", err)
+		fmt.Printf("Caught error in sendStoreDTOs: %e\n", err)
 	}, func() {
 		fmt.Println(".... Observable is closed")
 	})
@@ -253,21 +266,11 @@ func readFileConfiguration(partnerName string) FileConfiguration {
 
 	return FileConfiguration{
 		ColumnMappings: []ColumnMapping{
-			ColumnMapping{ColumnName: "Row_Num", FieldName: "RowNumber"},
-			ColumnMapping{ColumnName: "EAN", FieldName: "EAN"},
+			ColumnMapping{ColumnName: "SKU", FieldName: "SKU"},
 			ColumnMapping{ColumnName: "Product_Name", FieldName: "ProductName"},
-			ColumnMapping{ColumnName: "Product_Description", FieldName: "ProductDescription"},
 			ColumnMapping{ColumnName: "Store_Name", FieldName: "StoreName"},
-			ColumnMapping{ColumnName: "Product_Trademark", FieldName: "ProductTrademark"},
 			ColumnMapping{ColumnName: "Price", FieldName: "Price"},
-			ColumnMapping{ColumnName: "Discounted_Price", FieldName: "DiscountedPrice"},
-			ColumnMapping{ColumnName: "Discount", FieldName: "Discount"},
-			ColumnMapping{ColumnName: "Variation_Name", FieldName: "VariationName"},
-			ColumnMapping{ColumnName: "Variation_Value", FieldName: "VariationValue"},
 			ColumnMapping{ColumnName: "Stock", FieldName: "Stock"},
-			ColumnMapping{ColumnName: "Product_Category_1", FieldName: "ProductCategory1"},
-			ColumnMapping{ColumnName: "Product_Category_2", FieldName: "ProductCategory2"},
-			ColumnMapping{ColumnName: "Product_Category_3", FieldName: "ProductCategory3"},
 		},
 	}
 }

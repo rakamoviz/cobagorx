@@ -1,9 +1,9 @@
-Row_Num,EAN,Product_Name,Product_Description,Store_Name,Product_Trademark,Price,Discounted_Price,Discount,Variation_Name,Variation_Value,Stock,Product_Category_1,Product_Category_2,Product_Category_3
-1,1,Product 1,Product Description 1,Store 1,Bunny,1000,,,,,,,,
-2,2,Product 2,Product Description 2,Store 1,Bunny,,,,,,,,,
-3,1,Product 1,Product Description 1,Store 2,Bunny,,,,,,,,,
-4,3,Product 3,Product Description 3,Store 1,Birdie,,,,,,,,,
-5,3,Product 3,Product Description 3,Store 2,Birdie,,,,,,,,,
-6,3,Product 3,Product Description 3,Store 3,Birdie,,,,,,,,,
-7,4,Product 4,Product Description 4,Store 2,Bunny,,,,,,,,,
-8,4,Product 4,Product Description 4,Store 3,Bunny,,,,,,,,,
+SKU,Product_Name,Store_Name,Price,Stock
+1,Product 1,Store 1,1000,
+2,Product 2,Store 1,,
+1,Product 1,Store 2,,
+3,Product 3,Store 1,,
+3,Product 3,Store 2,,
+3,Product 3,Store 3,,
+4,Product 4,Store 2,,
+4,Product 4,Store 3,,
