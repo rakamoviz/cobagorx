@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 
 	"io"
@@ -24,19 +25,19 @@ type Row struct {
 	ProductName string
 	StoreName   string
 	Price       string
-	Stock       string
+	Quantity    string
 }
 
 type ProductAvailabilities struct {
-	StoreName     string
-	ProductStocks []ProductStock
+	StoreName     string         `json:"store_name"`
+	ProductStocks []ProductStock `json:"product_stocks"`
 }
 
 type ProductStock struct {
-	SKU         string
-	ProductName string
-	Price       string
-	Stock       string
+	SKU         string `json:"sku"`
+	ProductName string `json:"product_name"`
+	Price       string `json:"price"`
+	Quantity    string `json:"quantity"`
 }
 
 func (productAvailabilitiesPtr *ProductAvailabilities) addProductStock(productStock ProductStock) {
@@ -50,7 +51,7 @@ func newProductStock(row Row) ProductStock {
 		SKU:         row.SKU,
 		ProductName: row.ProductName,
 		Price:       row.Price,
-		Stock:       row.Stock,
+		Quantity:    row.Quantity,
 	}
 }
 
@@ -272,7 +273,9 @@ func createProductAvailabilitiesObservable(
 
 func sendProductAvailabilities(productAvailabilitiesObservable rxgo.Observable) rxgo.Disposed {
 	return productAvailabilitiesObservable.ForEach(func(v interface{}) {
-		fmt.Printf("Sending: %v\n", v)
+		productAvailabilitiesJson, _ := json.Marshal(v)
+
+		fmt.Printf("Sending: %s\n", productAvailabilitiesJson)
 	}, func(err error) {
 		fmt.Printf("Caught error in sendProductAvailabilities: %e\n", err)
 	}, func() {
@@ -289,7 +292,7 @@ func readFileConfiguration(partnerName string) FileConfiguration {
 			ColumnMapping{ColumnName: "Product_Name", FieldName: "ProductName"},
 			ColumnMapping{ColumnName: "Store_Name", FieldName: "StoreName"},
 			ColumnMapping{ColumnName: "Price", FieldName: "Price"},
-			ColumnMapping{ColumnName: "Stock", FieldName: "Stock"},
+			ColumnMapping{ColumnName: "Quantity", FieldName: "Quantity"},
 		},
 	}
 }

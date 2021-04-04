@@ -1,9 +1,9 @@
-SKU,Store_Name,Price,Stock
-1,Store 1,1000,
-2,Store 1,,
-1,Store 2,,
-3,Store 1,,
-3,Store 2,,
-3,Store 3,,
-4,Store 2,,
-4,Store 3,,
+SKU,Store_Name,Price,Quantity
+1,Store 1,1001,1
+2,Store 1,1002,2
+1,Store 2,1003,3
+3,Store 1,1004,4
+3,Store 2,1005,5
+3,Store 3,1006,6
+4,Store 2,1007,7
+4,Store 3,1008,8
