@@ -27,19 +27,38 @@ type Row struct {
 	Stock       string
 }
 
-type StoreDTO struct {
-	StoreName string
-	Rows      []Row
+type ProductAvailabilities struct {
+	StoreName     string
+	ProductStocks []ProductStock
 }
 
-func (storeDTOPtr *StoreDTO) appendRow(row Row) {
-	storeDTOPtr.Rows = append(storeDTOPtr.Rows, row)
+type ProductStock struct {
+	SKU         string
+	ProductName string
+	Price       string
+	Stock       string
 }
 
-func newStoreDTO(storeName string) StoreDTO {
-	instance := StoreDTO{}
+func (productAvailabilitiesPtr *ProductAvailabilities) addProductStock(productStock ProductStock) {
+	productAvailabilitiesPtr.ProductStocks = append(
+		productAvailabilitiesPtr.ProductStocks, productStock,
+	)
+}
+
+func newProductStock(row Row) ProductStock {
+	return ProductStock{
+		SKU:         row.SKU,
+		ProductName: row.ProductName,
+		Price:       row.Price,
+		Stock:       row.Stock,
+	}
+}
+
+func newProductAvailabilities(storeName string) ProductAvailabilities {
+	instance := ProductAvailabilities{}
+
 	instance.StoreName = storeName
-	instance.Rows = make([]Row, 0, 20)
+	instance.ProductStocks = make([]ProductStock, 0, 20)
 
 	return instance
 }
@@ -202,7 +221,7 @@ func recordsProducer(csvFilename string, fileConfiguration FileConfiguration) fu
 	}
 }
 
-func createStoreDTOsObservable(
+func createProductAvailabilitiesObservable(
 	fileName string, fileConfiguration FileConfiguration,
 	bufferSize int, bufferTimeout time.Duration,
 ) rxgo.Observable {
@@ -226,36 +245,36 @@ func createStoreDTOsObservable(
 				groupedObservable := item.V.(rxgo.GroupedObservable)
 				//fmt.Printf("New observable: %s\n", groupedObservable.Key)
 
-				storeDTOItem, err := groupedObservable.Reduce(func(_ context.Context, acc interface{}, elem interface{}) (interface{}, error) {
-					var storeDTO StoreDTO
+				productAvailabilitiesItem, err := groupedObservable.Reduce(func(_ context.Context, acc interface{}, elem interface{}) (interface{}, error) {
+					var productAvailabilities ProductAvailabilities
 					row := elem.(Row)
 
 					if acc == nil {
-						storeDTO = newStoreDTO(row.StoreName)
+						productAvailabilities = newProductAvailabilities(row.StoreName)
 					} else {
-						storeDTO = acc.(StoreDTO)
+						productAvailabilities = acc.(ProductAvailabilities)
 					}
 
-					storeDTO.appendRow(row)
+					productAvailabilities.addProductStock(newProductStock(row))
 
-					return storeDTO, nil
+					return productAvailabilities, nil
 				}).Get()
 
 				if err != nil {
 					return rxgo.Thrown(err)
 				}
 
-				return rxgo.Just(storeDTOItem.V)()
+				return rxgo.Just(productAvailabilitiesItem.V)()
 			})
 		},
 	)
 }
 
-func sendStoreDTOs(storeDTOsObservable rxgo.Observable) rxgo.Disposed {
-	return storeDTOsObservable.ForEach(func(v interface{}) {
+func sendProductAvailabilities(productAvailabilitiesObservable rxgo.Observable) rxgo.Disposed {
+	return productAvailabilitiesObservable.ForEach(func(v interface{}) {
 		fmt.Printf("Sending: %v\n", v)
 	}, func(err error) {
-		fmt.Printf("Caught error in sendStoreDTOs: %e\n", err)
+		fmt.Printf("Caught error in sendProductAvailabilities: %e\n", err)
 	}, func() {
 		fmt.Println(".... Observable is closed")
 	})
@@ -278,7 +297,7 @@ func readFileConfiguration(partnerName string) FileConfiguration {
 func main() {
 	fileConfiguration := readFileConfiguration("PARTNER_1_MX")
 
-	storeDTOsObservable := createStoreDTOsObservable("input.csv", fileConfiguration, 4, 3*time.Second)
+	productAvailabilitiesObservable := createProductAvailabilitiesObservable("input.csv", fileConfiguration, 4, 3*time.Second)
 
-	<-sendStoreDTOs(storeDTOsObservable)
+	<-sendProductAvailabilities(productAvailabilitiesObservable)
 }
